@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """
 clone the following repo if haven't
 - git clone 'https://github.com/openai/CLIP'
