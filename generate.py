@@ -4,6 +4,7 @@
 # The original BigGAN+CLIP method was by https://twitter.com/advadnoun
 
 import argparse
+import pathlib
 import math
 import random
 # from email.policy import default
@@ -39,8 +40,7 @@ import imageio
 from PIL import ImageFile, Image, PngImagePlugin, ImageChops
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-from subprocess import Popen, PIPE
-import re
+from subprocess import Popen, PIPE, DEVNULL
 
 # Supress warnings
 import warnings
@@ -147,8 +147,7 @@ if args.video_style_dir:
     print("Locating video frames...")
     video_frame_list = []
     for entry in os.scandir(args.video_style_dir):
-        if (entry.path.endswith(".jpg")
-                or entry.path.endswith(".png")) and entry.is_file():
+        if (entry.path[-4:] in ['.jpg', '.png', '.bmp']) and entry.is_file():
             video_frame_list.append(entry.path)
 
     # Reset a few options - same filename, different directory
@@ -735,7 +734,7 @@ def ascend_txt():
     if args.make_video:    
         img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:,:,:]
         img = np.transpose(img, (1, 2, 0))
-        imageio.imwrite('./steps/' + str(i) + '.png', np.array(img))
+        imageio.imwrite('./steps/' + str(i) + '.bmp', np.array(img))
 
     return result # return loss
 
@@ -779,7 +778,7 @@ try:
                     # Save image
                     img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:,:,:]
                     img = np.transpose(img, (1, 2, 0))
-                    imageio.imwrite('./steps/' + str(j) + '.png', np.array(img))
+                    imageio.imwrite('./steps/' + str(j) + '.bmp', np.array(img))
 
                     # Time to start zooming?                    
                     if args.zoom_start <= i:
@@ -934,59 +933,60 @@ if args.make_video or args.make_zoom_video:
     frames = []
     tqdm.write('Generating video...')
     for i in range(init_frame,last_frame):
-        temp = Image.open("./steps/"+ str(i) +'.png')
+        temp = Image.open("./steps/"+ str(i) +'.bmp')
         keep = temp.copy()
         frames.append(keep)
         temp.close()
     
+    output_file = pathlib.Path(args.output).with_suffix('.mp4')
     if args.output_video_fps > 9:
         # Hardware encoding and video frame interpolation
         print("Creating interpolated frames...")
         ffmpeg_filter = f"minterpolate='mi_mode=mci:me=hexbs:me_mode=bidir:mc_mode=aobmc:vsbmc=1:mb_size=8:search_param=32:fps={args.output_video_fps}'"
-        output_file = re.compile('\.png$').sub('.mp4', args.output)
-        try:
-            p = Popen(['ffmpeg',
-                       '-y',
-                       '-f', 'image2pipe',
-                       '-vcodec', 'png',
-                       '-r', str(args.input_video_fps),               
-                       '-i',
-                       '-',
-                       '-b:v', '10M',
-                       '-vcodec', 'h264_nvenc',
-                       '-pix_fmt', 'yuv420p',
-                       '-strict', '-2',
-                       '-filter:v', f'{ffmpeg_filter}',
-                       '-metadata', f'comment={args.prompts}',
-                   output_file], stdin=PIPE)
-        except FileNotFoundError:
-            print("ffmpeg command failed - check your installation")
-        for im in tqdm(frames):
-            im.save(p.stdin, 'PNG')
-        p.stdin.close()
-        p.wait()
+        ffmpeg_cmd = ['ffmpeg',
+                      '-y',
+                      '-f', 'image2pipe',
+                      '-vcodec', 'bmp',
+                      '-r', str(args.input_video_fps),
+                      '-i',
+                      '-',
+                      '-b:v', '10M',
+                      '-vcodec', 'h264_nvenc',
+                      '-pix_fmt', 'yuv420p',
+                      '-strict', '-2',
+                      '-filter:v', ffmpeg_filter,
+                      '-metadata', f'comment={args.prompts}',
+                      '-hide_banner', '-loglevel', 'error', '-nostats',
+                      output_file]
     else:
         # CPU
         fps = np.clip(total_frames/length,min_fps,max_fps)
-        output_file = re.compile('\.png$').sub('.mp4', args.output)
-        try:
-            p = Popen(['ffmpeg',
-                       '-y',
-                       '-f', 'image2pipe',
-                       '-vcodec', 'png',
-                       '-r', str(fps),
-                       '-i',
-                       '-',
-                       '-vcodec', 'libx264',
-                       '-r', str(fps),
-                       '-pix_fmt', 'yuv420p',
-                       '-crf', '17',
-                       '-preset', 'veryslow',
-                       '-metadata', f'comment={args.prompts}',
-                       output_file], stdin=PIPE)
-        except FileNotFoundError:
-            print("ffmpeg command failed - check your installation")        
-        for im in tqdm(frames):
-            im.save(p.stdin, 'PNG')
-        p.stdin.close()
-        p.wait()     
+        ffmpeg_cmd = ['ffmpeg',
+                      '-y',
+                      '-f', 'image2pipe',
+                      '-vcodec', 'bmp',
+                      '-r', str(fps),
+                      '-i',
+                      '-',
+                      '-vcodec', 'libx264',
+                      '-r', str(fps),
+                      '-pix_fmt', 'yuv420p',
+                      '-crf', '17',
+                      '-preset', 'veryslow',
+                      '-metadata', f'comment={args.prompts}',
+                      '-hide_banner', '-loglevel', 'error', '-nostats',
+                      output_file]
+
+    try:
+        p = Popen(ffmpeg_cmd, stdin=PIPE, stdout=DEVNULL)
+    except FileNotFoundError:
+        print("ffmpeg not found - check your installation")
+        sys.exit(1)
+    except:
+        print("An ffmpeg error occurred - check your installation. Do you have a version of ffmpeg with x264 encoding support?")
+        sys.exit(1)
+
+    for im in tqdm(frames):
+        im.save(p.stdin, 'bmp')
+    p.stdin.close()
+    p.wait()
