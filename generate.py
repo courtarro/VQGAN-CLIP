@@ -6,12 +6,17 @@
 import argparse
 import pathlib
 import math
-import random
-# from email.policy import default
-from urllib.request import urlopen
-from tqdm import tqdm
-import sys
 import os
+import random
+from subprocess import Popen, PIPE, DEVNULL
+import sys
+from urllib.request import urlopen
+import warnings
+
+import imageio
+import numpy as np
+from PIL import ImageFile, Image, PngImagePlugin, ImageChops
+from tqdm import tqdm
 
 # pip install taming-transformers doesn't work with Gumbel, but does not yet work with coco etc
 # appending the path does work with Gumbel, but gives ModuleNotFoundError: No module named 'transformers' for coco etc
@@ -34,17 +39,12 @@ from torch_optimizer import DiffGrad, AdamP, RAdam
 
 from CLIP import clip
 import kornia.augmentation as K
-import numpy as np
-import imageio
 
-from PIL import ImageFile, Image, PngImagePlugin, ImageChops
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-from subprocess import Popen, PIPE, DEVNULL
-
 # Supress warnings
-import warnings
 warnings.filterwarnings('ignore')
+
 
 
 # Check for GPU and reduce the default image size if low VRAM
